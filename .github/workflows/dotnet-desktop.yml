@@ -1,40 +1,96 @@
-name: .NET Desktop
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
+
+# This continuous integration pipeline is triggered anytime a user pushes code to the repo.
+# This pipeline builds the Wpf project, runs unit tests, then saves the MSIX build artifact.
+name: Wpf Continuous Integration
 
 on:
   push:
-    branches: none    # [ "main" ]
+    branches: [ "main" ]  # none 사용해도 무방
   pull_request:
-    branches: none    # [ "main" ]
-
-  # 액션탭으로 부터 이 워크플로우 수정 실행을 허용가능
-  workflow_dispatch:
+    branches: [ "main" ]  # none 사용해도 무방
 
 jobs:
   build:
-    runs-on: windows-latest  # 
+    strategy:
+      matrix:
+        targetplatform: [x64]    # [x86, x64]
+    runs-on: windows-latest  # 윈도우, MacOS, Linux 변경 가능
 
     env:
-      Solution_Name: TestConsoleApp.sln                         # Replace with your solution name, i.e. MyWpfApp.sln.
-      working-directory: TestConsoleApp
+      App_Packages_Directory: AppPackages
+      # SigningCertificate: GitHubActionsDemo.pfx
+      Solution_Name: MyWpfApp.sln
+      Wpf_Project_Path: MyWpfApp\MyWpfApp.csproj
+      Test_Project_Path: MyWpfApp.Tests\MyWpfApp.Tests.csproj
+      # Wap_Project_Directory: MyWpfApp.Package    # 웹패키징할 것이 있으면...
+      # Wap_Project_Name: MyWpfApp.Package.wapproj
+      Actions_Allow_Unsecure_Commands: true # Allows AddPAth and SetEnv commands
 
     steps:
     - name: 닷넷 체크아웃
       uses: actions/checkout@v4
+      # with:  ## NBGV를 사용안할 거임
+        #fetch-depth: 0 # avoid shallow clone so nbgv can do its work.
+
+    # Use Nerdbank.GitVersioning to set version variables: https://github.com/AArnott/nbgv
+    #- name: Use Nerdbank.GitVersioning to set version variables
+    #  uses: dotnet/nbgv@master
+    #  id: nbgv
 
     # .NET 인스톨?
-    - name: 닷넷 셋업
+    - name: 닷넷 인스톨
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
 
-    # 의존성 복구
-    - name: 애플리이션 복구
-      run: dotnet restore
+    # Add  MsBuild to the PATH: https://github.com/microsoft/setup-msbuild
+    - name: MSBuild.exe 셋업
+      uses: microsoft/setup-msbuild@v1.1
 
-    # Add  MSBuild to the PATH: https://github.com/microsoft/setup-msbuild
-    - name: MSBuild
-      run: dotnet build --no-restore
-      
-    # 유닛테스트는 없음
+    # 빌드이전 버전 업데이트
+    #- name: Update manifest version
+    #  run: |
+    #    [xml]$manifest = get-content ".\$env:Wap_Project_Directory\Package.appxmanifest"
+    #    $manifest.Package.Identity.Version = "${{ steps.nbgv.outputs.SimpleVersion }}.0"
+    #    $manifest.save(".\$env:Wap_Project_Directory\Package.appxmanifest")
+
+    # Test
     - name: 유닛테스트 실행
-      run: dotnet test --no-build --verbosity normal
+      run: dotnet test $env:Test_Project_Path
+
+    # 응용앱 복원
+    - name:  Obj폴더 이동위해 WPF 앱 복원
+      run: msbuild $env:Solution_Path /t:Restore /p:Configuration=$env:Configuration /p:RuntimeIdentifier=$env:RuntimeIdentifier
+      env:
+        Configuration: Debug
+        RuntimeIdentifier: win-${{ matrix.targetplatform }}
+
+    # Decode the Base64 encoded Pfx
+    #- name: Decode the Pfx
+    #  run: |
+    #    $pfx_cert_byte = [System.Convert]::FromBase64String("${{ secrets.Base64_Encoded_Pfx }}")
+    #    $currentDirectory = Get-Location
+    #    $certificatePath = Join-Path -Path $currentDirectory -ChildPath $env:Wap_Project_Directory -AdditionalChildPath $env:SigningCertificate
+    #    [IO.File]::WriteAllBytes("$certificatePath", $pfx_cert_byte)
+
+    # Windows 앱 패키징 프로젝트 빌드
+    - name: Build the Windows Application Packaging Project (wapproj)
+      run: msbuild $env:Solution_Path /p:Platform=$env:TargetPlatform /p:Configuration=$env:Configuration /p:UapAppxPackageBuildMode=$env:BuildMode /p:AppxBundle=$env:AppxBundle /p:PackageCertificateKeyFile=$env:SigningCertificate /p:PackageCertificatePassword=${{ secrets.Pfx_Key }}
+      env:
+        AppxBundle: Never
+        BuildMode: SideloadOnly
+        Configuration: Debug
+        TargetPlatform: ${{ matrix.targetplatform }}
+
+    # Remove the .pfx
+    #- name: Remove the .pfx
+    #  run: Remove-Item -path $env:Wap_Project_Directory\$env:SigningCertificate
+
+    # Upload the MSIX package: https://github.com/marketplace/actions/upload-artifact
+    #- name: Upload build artifacts
+    #  uses: actions/upload-artifact@v1
+    #  with:
+    #    name: MSIX Package
+    #    path: ${{ env.Wap_Project_Directory }}\${{ env.App_Packages_Directory }}
