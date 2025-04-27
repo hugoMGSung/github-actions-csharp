@@ -124,5 +124,18 @@
 
 5. 참조링크 내 소스로 작성
     - [참조링크](https://github.com/microsoft/github-actions-for-desktop-apps/blob/main/.github/workflows/ci.yml)
+    - [작업소스](./dotnet-desktop.yml.bak)
+    - 실행결과
 
-    
+    <img src="./image/ga0002.png" width="800">
+
+6. wapproj 부재로 오류 
+    - 주석처리 필요
+
+    <img src="./image/ga0003.png" width="800">
+
+7. 깃헙액션은 CI 진행해도 남은 실행결과가 따로 남지 않음
+
+8. 실행결과까지 남기고 싶으면
+    - Jenkins로 실제 개발용 배포 서버를 구축할 것
+
